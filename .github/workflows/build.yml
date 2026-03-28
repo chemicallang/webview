@@ -101,6 +101,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DWEBVIEW_BUILD_SHARED_LIBRARY=ON `
             -DWEBVIEW_ENABLE_CHECKS=OFF `
+            -DWEBVIEW_BUILD_DOCS=OFF `
+            -DWEBVIEW_BUILD_TESTS=OFF `
+            -DWEBVIEW_BUILD_EXAMPLES=OFF `
+            -DWEBVIEW_BUILD_AMALGAMATION=OFF `
             -DCMAKE_INSTALL_PREFIX=dist `
             .
           cmake --build webview/build --target install
@@ -115,6 +119,10 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DWEBVIEW_BUILD_SHARED_LIBRARY=ON \
             -DWEBVIEW_ENABLE_CHECKS=OFF \
+            -DWEBVIEW_BUILD_DOCS=OFF \
+            -DWEBVIEW_BUILD_TESTS=OFF \
+            -DWEBVIEW_BUILD_EXAMPLES=OFF \
+            -DWEBVIEW_BUILD_AMALGAMATION=OFF \
             -DCMAKE_INSTALL_PREFIX=dist \
             .
           cmake --build webview/build --target install
