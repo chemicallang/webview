@@ -4,6 +4,8 @@ Webview Library Bindings for Chemical Programming Language
 
 ## Usage
 
+Put this line in your `chemical.mod` file
+
 ```chmod
 import "github.com/chemicallang/webview"
 ```
