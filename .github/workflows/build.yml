@@ -1,0 +1,168 @@
+name: Build Webview Library
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'webview version to build (e.g. master or a tag)'
+        required: true
+        default: 'master'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  build:
+    name: ${{ matrix.config.os-name }} (${{ matrix.config.arch }})
+    runs-on: ${{ matrix.config.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - os-name: Windows
+            os: windows
+            arch: x64
+            runner: windows-2025
+          - os-name: Windows
+            os: windows
+            arch: arm64
+            runner: windows-11-arm
+          - os-name: Linux
+            os: linux
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Linux
+            os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: Alpine
+            os: alpine
+            arch: x64
+            runner: ubuntu-24.04
+          - os-name: Alpine
+            os: alpine
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os-name: MacOS
+            os: macos
+            arch: x64
+            runner: macos-15-intel
+          - os-name: MacOS
+            os: macos
+            arch: arm64
+            runner: macos-14
+
+    container:
+      image: ${{ matrix.config.os == 'alpine' && 'alpine:3.20' || '' }}
+
+    steps:
+      - name: Enable JavaScript actions in Alpine containers
+        if: matrix.config.os == 'alpine'
+        uses: laverdet/alpine-arm64@v1
+
+      - name: Checkout webview
+        uses: actions/checkout@v4
+        with:
+          repository: webview/webview
+          ref: ${{ github.event.inputs.version }}
+          path: webview
+
+      - name: Install dependencies (Linux)
+        if: matrix.config.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build libgtk-3-dev libwebkit2gtk-4.0-dev zip
+          # Also try to get webkit2gtk-4.1 if 4.0 is not available or for better compatibility
+          sudo apt-get install -y libwebkit2gtk-4.1-dev || true
+
+      - name: Install dependencies (Alpine)
+        if: matrix.config.os == 'alpine'
+        run: |
+          apk add --no-cache build-base cmake ninja gtk+3.0-dev webkit2gtk-dev bash zip curl
+
+      - name: Install dependencies (MacOS)
+        if: matrix.config.os == 'macos'
+        run: |
+          brew update
+          brew install cmake ninja zip
+
+      - name: Set up Visual Studio (Windows)
+        if: matrix.config.os == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.config.arch }}
+
+      - name: Configure and Build (Windows)
+        if: matrix.config.os == 'windows'
+        shell: pwsh
+        run: |
+          cmake -G Ninja `
+            -S webview `
+            -B webview/build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DWEBVIEW_BUILD_SHARED_LIBRARY=ON `
+            -DCMAKE_INSTALL_PREFIX=dist `
+            .
+          cmake --build webview/build --target install
+
+      - name: Configure and Build (Unix)
+        if: matrix.config.os != 'windows'
+        shell: bash
+        run: |
+          cmake -G Ninja \
+            -S webview \
+            -B webview/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWEBVIEW_BUILD_SHARED_LIBRARY=ON \
+            -DCMAKE_INSTALL_PREFIX=dist \
+            .
+          cmake --build webview/build --target install
+
+      - name: Prepare Package
+        shell: bash
+        run: |
+          mkdir -p package/include
+          mkdir -p package/lib
+          
+          # Copy headers (sometimes webview.h is in root, sometimes core/include)
+          find webview -name "webview.h" -exec cp {} package/include/ \;
+          
+          # Copy libraries
+          if [[ "${{ matrix.config.os }}" == "windows" ]]; then
+            # Windows: DLLs, Libs, and WebView2Loader.dll
+            # CMake install target usually puts DLLs in bin and .libs in lib
+            if [[ -d dist/bin ]]; then
+              cp dist/bin/*.dll package/
+            fi
+            if [[ -d dist/lib ]]; then
+              cp dist/lib/*.lib package/lib/
+            fi
+            
+            # Find and copy any extra DLLs like WebView2Loader.dll
+            # WebView2Loader.dll might be in the build directory or subfolders
+            echo "Searching for extra DLLs..."
+            find webview/build -name "*.dll" -not -path "*/dist/*" -exec cp {} package/ \;
+          elif [[ "${{ matrix.config.os }}" == "macos" ]]; then
+            cp dist/lib/*.dylib package/lib/
+          else
+            # Linux / Alpine
+            cp -P dist/lib/*.so* package/lib/
+          fi
+          
+          # List files for verification
+          echo "Final package structure:"
+          find package
+
+          # Set package name
+          PACKAGE_NAME="webview-${{ matrix.config.os }}-${{ matrix.config.arch }}"
+          if [[ "${{ matrix.config.os }}" == "alpine" ]]; then
+            PACKAGE_NAME="webview-linuxmusl-${{ matrix.config.arch }}"
+          fi
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: package/
